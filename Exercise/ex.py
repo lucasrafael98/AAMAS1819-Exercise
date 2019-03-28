@@ -2,7 +2,7 @@
 # IMPORTS
 #-------------------
 
-import re
+import json, re
 
 #-------------------
 # CLASSES
@@ -19,7 +19,6 @@ class Action:
                 uT += self.actions * self.prob
         else:
             for key in self.actions:
-                #print(key, str(self.actions[key]))
                 if(isinstance(self.actions[key], int)):
                     uT += self.actions[key] * self.prob
                 else:
@@ -36,11 +35,9 @@ class Action:
 class Task:
     def __init__(self, actions):
         self.actions = actions
-        #print(actions)
     def getUtility(self):
         uT = 0
         for key in self.actions:
-            #print(key, self.actions[key].getUtility())
             uT += self.actions[key].getUtility()
         return uT
     def recalcProb(self):
@@ -49,12 +46,21 @@ class Task:
             occ_total += self.actions[key].occ
         for key in self.actions:
             self.actions[key].prob = self.actions[key].occ / occ_total
+    def listActions(self):
+        stri = ""
+        for key in self.actions:
+            stri += key + "\t" + str(self.actions[key].prob) \
+                         + "\t" + str(self.actions[key].getUtility()) +"\n"
+        return stri
 
 class Agent:
     def __init__(self, tasks, interactions):
         self.tasks = tasks
         self.interaccs = interactions
         #print(tasks)
+    def listTasks(self):
+        for key in self.tasks:
+            print(key, ("\n" + self.tasks[key].listActions()))
 
 class RationalAgent(Agent):
     def decide(self):
@@ -62,7 +68,6 @@ class RationalAgent(Agent):
         umax = 0
         for key in self.tasks:
             u = self.tasks[key].getUtility()
-            #print(key, str(u))
             if(u > umax):
                 umax = u
                 res = key
@@ -77,68 +82,49 @@ class RiskAgent(Agent):
 # AUX FUNCTIONS
 #-------------------
 
-def parseActionCond(stri, letter):
+def createAction(dict):
     prob = -1
     occ = -1
-    beliefs = {}
-    #print(stri)
-    settings = re.findall(r"-?[0-9]+%?|\[.*\]", stri)
-    #letters = re.findall(r"[^\[]][a-zA-Z]+", stri)
-    
-    if(len(settings[0]) > 2 and settings[0][len(settings[0])-1] == '%'):
-        prob = int(settings[0][:len(settings[0])-1]) / 100
+    if(dict["probability"][-1] == "%"):
+        prob = float(dict["probability"][:-1]) / 100
     else:
-        occ = int(settings[0])
-    if(settings[1][0] == '['):
-        #print(settings[1])
-        subActions = re.findall(r"-?[0-9]+%?,\[.*?\]|-?[0-9]+%?,-?[0-9]+", settings[1])
-        subALetters = re.findall(r"[a-zA-Z][0-9]?", settings[1][1:])
-        subALetters1 = re.findall(r"[a-zA-Z][0-9]", settings[1][1:])
-        subALetters2 = re.findall(r"[a-zA-Z]", settings[1][1:])
-        if(len(subALetters1) > 0 and subALetters1[0] == subALetters[0]):
-            subALetters = subALetters1
-        elif(len(subALetters2) > 0 and subALetters2[0] == subALetters[0]):
-            subALetters = subALetters2
-        #print("sub: ", subActions, subALetters)
-        for i in range(len(subActions)):
-            beliefs[subALetters[i]] = parseActionCond(subActions[i], subALetters[i])
+        occ = int(dict["probability"])
+    if(isinstance(dict["utility"], int)):
+        u = dict["utility"]
     else:
-        #print(letter, settings[1])
-        beliefs[letter] = int(settings[1])
-    #print(letter, beliefs)
-    return Action(prob, occ, beliefs)
+        u = {}
+        for ac in dict["utility"]: 
+            u[ac["actionName"]] = createAction(ac)
+    return Action(prob, occ, u)
     
-
 def parseLineCond(stri):
-    res = {}
-    stri = stri[1:len(stri) - 1]
-    # each task's action is parsed here.
-    tasks = re.split(r',?T.=', stri)[1:]
-    letters = re.findall(r"T[0-9]+", stri)
-    #print(tasks)
-    #print(stri)
-    #print(letters)
-    for i in range(len(tasks)):
-        actions = {}
-        task_actions = re.findall(r"\(-?[0-9]+%?,-?[0-9]+\)|\(-?[0-9]+%?,\[.*\]\)", tasks[i][1:len(tasks[i])-1])
-        letter = re.findall(r"[A-Z]", tasks[i][1:len(tasks[i])-1])[0]
-        action_letters = []
-        for k in range(len(task_actions)):
-            action_letters.append(chr(ord(letter) + k))
-        #print(task_actions, action_letters)
-        occ_total = 0
-        count_occ = False
-        for j in range(len(task_actions)):
-            actions[action_letters[j]] = parseActionCond(task_actions[j], action_letters[j])
-            if(actions[action_letters[j]].occ != -1):
-                occ_total += actions[action_letters[j]].occ
-                count_occ = True
-        if(count_occ):
-            for key in actions:
-                actions[key].prob = actions[key].occ / occ_total
-        #print(letters[i], actions)
-        res[letters[i]] = Task(actions)
-    return res
+    stri = "[{" + stri[1:-1] + "}]"
+    stri = stri.replace("(", "").replace(")","")
+    # transform into taskName
+    stri = re.sub(r",(T[0-9]+)=\[", r'},{"taskName":"\1","actions":[{', stri)
+    stri = re.sub(r"(T[0-9]+)=\[", r'"taskName":"\1","actions":[{', stri)
+    # transform action and probability
+    stri = re.sub(r",([A-Z][0-9]*)=(-?[0-9]+%?)", r'},{"actionName":"\1","probability":"\2"', stri)
+    stri = re.sub(r"([A-Z][0-9]*)=(-?[0-9]+%?)", r'"actionName":"\1","probability":"\2"', stri)
+    # transform utility
+    stri = re.sub(r",(-?[0-9]+)\]\}", r',"utility":\1}]}', stri)
+    stri = re.sub(r",(-?[0-9]+)", r',"utility":\1', stri)
+    stri = re.sub(r",\[", r',"utility":[{', stri)
+    # lol idk either
+    stri = re.sub(r"\]\]", r'}]}]', stri)
+    parsed = json.loads(stri)
+    tasks = {}
+    for task in parsed:
+        hasOcc = False
+        taskActions = {}
+        for action in task["actions"]:
+            taskActions[action["actionName"]] = createAction(action)
+            if(taskActions[action["actionName"]].prob == -1):
+                hasOcc = True
+        tasks[task["taskName"]] = Task(taskActions)
+        if(hasOcc):
+            tasks[task["taskName"]].recalcProb()
+    return tasks
 
 def updateAction(line, agent):
     line_proc = line.split(",")
@@ -164,7 +150,7 @@ def updateAction(line, agent):
 
 done = False
 while(not done):
-    line = str(input())
+    line = str(input("console> "))
     line = line.split(" ")
     if(line[0] == "decide-rational"):
         done = False
@@ -176,11 +162,14 @@ while(not done):
             done = True
             print("Invalid Input.")
         print(agent.decide())
-        while(not done):
-            line = str(input())
+        update_done = False
+        while(not update_done):
+            line = str(input("console> "))
             # TODO: Implement better end
             if(line == "end"):
-                done = False
+                update_done = True
+            if(line == "ls"):
+                agent.listTasks()
             else:
                 updateAction(line, agent)
                 print(agent.decide())
