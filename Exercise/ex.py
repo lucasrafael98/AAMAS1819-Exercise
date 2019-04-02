@@ -34,8 +34,8 @@ class Action:
             for key in self.actions:
                 if(isinstance(self.actions[key], int) and self.actions[key] < umin):
                     umin = self.actions[key]
-                elif(self.actions[key].getExpectedUtility() < umin):
-                    umin = self.actions[key].getExpectedUtility()
+                elif(self.actions[key].getMinUtility() < umin):
+                    umin = self.actions[key].getMinUtility()
         return umin
     def recalcProb(self):
         occ_total = 0
@@ -56,8 +56,8 @@ class Task:
     def getMinUtility(self):
         umin = 1e32
         for key in self.actions:
-            if(self.actions[key].getExpectedUtility() < umin):
-                umin = self.actions[key].getExpectedUtility()
+            if(self.actions[key].getMinUtility() < umin):
+                umin = self.actions[key].getMinUtility()
         return umin
     def recalcProb(self):
         occ_total = 0
@@ -74,9 +74,8 @@ class Task:
 
 # Describes an abstract agent that contains tasks.
 class Agent:
-    def __init__(self, tasks, interactions):
+    def __init__(self, tasks):
         self.tasks = tasks
-        self.interaccs = interactions
         self.lastDec = ""
         #sys.stdout.write(tasks)
     def listTasks(self):
@@ -114,12 +113,35 @@ class RationalAgent(Agent):
 
 class RiskAgent(Agent):
     def decide(self):
-        uexp = {}
-        umin = {}
+        keys = []
+        uexp = []
+        umin = []
         for key in self.tasks:
-            uexp[key] = self.tasks[key].getExpectedUtility()
-            umin[key] = self.tasks[key].getMinUtility()
-        return 1
+            keys.append(key)
+            uexp.append(self.tasks[key].getExpectedUtility())
+            umin.append(self.tasks[key].getMinUtility())
+        risk = pulp.LpProblem("Risk", pulp.LpMaximize)
+        xs = [pulp.LpVariable("{}".format(k), cat="Continuous") for k in keys]
+        # Objective function
+        obj = sum(x * ux for x,ux in zip(xs, uexp))
+        risk += obj
+        # Constraints
+        for x in xs:
+            risk += x <= 1
+            risk += x >= 0
+        ums = sum(x * um for x,um in zip(xs, umin))
+        risk += ums >= 0
+        risk += sum(x for x in xs) == 1
+        print(risk)
+        risk.solve()
+        res = "("
+        for var in risk.variables():
+            if(var.varValue > 1):
+                res += "1.00," + var.name + ";"   
+            elif(var.varValue > 0):
+                res += ("%0.2f" % var.varValue) + "," + var.name + ";" 
+        res = res[:-1] + ")"
+        return res
 
 #-------------------
 # AUX FUNCTIONS
@@ -180,22 +202,20 @@ while(not done):
     line = line.split(" ")
     if(line[0] == "decide-rational"):
         done = False
+        interaccs = 1
         if(len(line) == 2):
-            agent = RationalAgent(parseLineCond(line[1]), 1)
+            agent = RationalAgent(parseLineCond(line[1]))
         elif(len(line) == 3):
-            agent = RationalAgent(parseLineCond(line[1]), line[2])
+            agent = RationalAgent(parseLineCond(line[1]))
+            interaccs = line[2]
         else:
             done = True
             sys.stdout.write("Invalid Input.")
         sys.stdout.write(agent.decide() + "\n")
         sys.stdout.flush()
         update_done = False
-        while(not update_done):
-            # line = str(input("console> "))
+        for i in range(interaccs):
             line = str(sys.stdin.readline())
-            # TODO: Implement better end
-            if(line == "end"):
-                update_done = True
             if(line == "ls"):
                 agent.listTasks()
             else:
@@ -203,19 +223,21 @@ while(not done):
                 sys.stdout.write(agent.decide() + "\n")
                 sys.stdout.flush()
     elif(line[0] == "decide-risk"):
-        if(len(line) == 2):
-            agent = RiskAgent(parseLineCond(line[1]), 1)
-        elif(len(line) == 3):
-            agent = RiskAgent(parseLineCond(line[1]), line[2])
+        if(len(line) == 2 or len(line) == 2):
+            agent = RiskAgent(parseLineCond(line[1]))
         else:
             sys.stdout.write("Invalid Input.")
-        sys.stdout.write(agent.decide())
+        sys.stdout.write(agent.decide() + "\n")
+        sys.stdout.flush()
     elif(line[0] == "decide-conditional"):
-        sys.stdout.write("cond")
+        sys.stdout.write("cond" + "\n")
+        sys.stdout.flush()
     elif(line[0] == "decide-nash"):
-        sys.stdout.write("nash")
+        sys.stdout.write("nash" + "\n")
+        sys.stdout.flush()
     elif(line[0] == "decide-mixed"):
-        sys.stdout.write("mixed")
+        sys.stdout.write("mixed" + "\n")
+        sys.stdout.flush()
     else:
         done = True
     
