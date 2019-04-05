@@ -3,4 +3,6 @@
 *.fls
 *.log
 *.synctex.gz
+Exercise/__pycache__
 Exercise/tests
+Exercise/pylinprog.py

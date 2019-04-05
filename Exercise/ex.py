@@ -1,8 +1,9 @@
 #-------------------
 # IMPORTS
 #-------------------
-
-import json, re, sys, pulp
+import json, re, sys
+from math import sqrt
+from pylinprog import linsolve
 
 #-------------------
 # CLASSES
@@ -17,7 +18,7 @@ class Action:
         self.actions = utility
     def getExpectedUtility(self):
         uT = 0
-        if(isinstance(self.actions, int)):
+        if(isinstance(self.actions, int) or isinstance(self.actions, float)):
                 uT += self.actions * self.prob
         else:
             for key in self.actions:
@@ -32,7 +33,7 @@ class Action:
         else:
             umin = 1e32
             for key in self.actions:
-                if(isinstance(self.actions[key], int) and self.actions[key] < umin):
+                if((isinstance(self.actions[key], int) or isinstance(self.actions[key], float)) and self.actions[key] < umin):
                     umin = self.actions[key]
                 elif(self.actions[key].getMinUtility() < umin):
                     umin = self.actions[key].getMinUtility()
@@ -73,7 +74,7 @@ class Task:
         return stri
 
 # Describes an abstract agent that contains tasks.
-class Agent:
+class SingleAgent:
     def __init__(self, tasks):
         self.tasks = tasks
         self.lastDec = ""
@@ -91,7 +92,7 @@ class Agent:
         for i in range(0, len(rec)-1):
             if(rec[i] in action.actions):
                 action = action.actions[rec[i]]
-        action.actions[rec[i]] = Action(-1, 1, int(unew))
+        action.actions[rec[i]] = Action(-1, 1, float(unew))
         for key in action.actions:
             if(key == unew):
                 continue
@@ -99,7 +100,7 @@ class Agent:
                 action.actions[key].occ = 0
         action.recalcProb()
 
-class RationalAgent(Agent):
+class RationalAgent(SingleAgent):
     def decide(self):
         res = ""
         umax = 0
@@ -111,37 +112,82 @@ class RationalAgent(Agent):
         self.lastDec = res
         return res
 
-class RiskAgent(Agent):
+class RiskAgent(SingleAgent):
     def decide(self):
         keys = []
         uexp = []
-        umin = []
+        umin = [[]]
         for key in self.tasks:
             keys.append(key)
-            uexp.append(self.tasks[key].getExpectedUtility())
-            umin.append(self.tasks[key].getMinUtility())
-        risk = pulp.LpProblem("Risk", pulp.LpMaximize)
-        xs = [pulp.LpVariable("{}".format(k), cat="Continuous") for k in keys]
-        # Objective function
-        obj = sum(x * ux for x,ux in zip(xs, uexp))
-        risk += obj
-        # Constraints
-        for x in xs:
-            risk += x <= 1
-            risk += x >= 0
-        ums = sum(x * um for x,um in zip(xs, umin))
-        risk += ums >= 0
-        risk += sum(x for x in xs) == 1
-        print(risk)
-        risk.solve()
+            uexp.append(-self.tasks[key].getExpectedUtility())
+            umin[0].append(-self.tasks[key].getMinUtility()) # inverted because of linprog lib
+        perc = [[1 if i==j else 0 for j in range(len(uexp))] for i in range(len(uexp))]
+        print(uexp, umin+perc)
+        print("eql", [[1]*len(uexp)])
+        print("ineqr", [0]+[1]*len(uexp))
+        print("nonneg", tuple(i for i in range(len(uexp))))
+        reso, sol = linsolve(uexp, 
+                            eq_left=[[1]*len(uexp)], eq_right=[1], 
+                            ineq_left=umin+perc, 
+                            ineq_right=[0]+[1]*len(uexp),
+                            nonneg_variables=tuple(i for i in range(len(uexp))))
+        print(reso, sol)
         res = "("
-        for var in risk.variables():
-            if(var.varValue > 1):
-                res += "1.00," + var.name + ";"   
-            elif(var.varValue > 0):
-                res += ("%0.2f" % var.varValue) + "," + var.name + ";" 
-        res = res[:-1] + ")"
+        for i in range(len(sol)):
+            if(sol[i] >= 0.01):
+                res += ("%0.2f" % sol[i]) + "," + keys[i] + ";" 
+        res = res[:-1] + ")"""
         return res
+
+class CondAgent(SingleAgent):
+    def decide(self):
+        return ""
+
+class NashAgent(SingleAgent):
+    def decide_row(self):
+        rows = [None]*len(self.tasks)
+        for i in range(len(self.tasks)):
+            jmax, jidx = -1,-1
+            for j in range(len(self.tasks)):
+                if(self.tasks[i][j].getExpectedUtility() > jmax):
+                    jmax = self.tasks[i][j].getExpectedUtility()
+                    jidx = j
+            rows[i] = (i, jidx)
+        return rows
+    def decide_col(self):
+        cols = [None]*len(self.tasks)
+        for i in range(len(self.tasks)):
+            jmax, jidx = -1,-1
+            for j in range(len(self.tasks)):
+                if(self.tasks[j][i].getExpectedUtility() > jmax):
+                    jmax = self.tasks[j][i].getExpectedUtility()
+                    jidx = j
+            cols[i] = (jidx, i)
+        return cols
+
+class MixedAgent(SingleAgent):
+    def decide(self):
+        return ""
+
+# Describes a multi-agent system.
+class MultiAgent:
+    def __init__(self, mine, peer):
+        self.mine = mine
+        self.peer = peer
+    def decide(self):
+        rmine = self.mine.decide_row()
+        cpeer = self.peer.decide_col()
+        if(rmine[0] == cpeer[0] and rmine[1] == cpeer[1]):
+            if(rmine[0] > rmine[1]):
+                return "mine=T" + str(rmine[0][0]) + ",peer=T" + str(rmine[0][1])
+            else:
+                return "mine=T" + str(rmine[1][0]) + ",peer=T" + str(rmine[1][1])
+        elif(rmine[0] == cpeer[0]):
+            return "mine=T" + str(rmine[0][0]) + ",peer=T" + str(rmine[0][1])
+        elif(rmine[1] == cpeer[1]):
+            return "mine=T" + str(rmine[1][0]) + ",peer=T" + str(rmine[1][1])
+        else:
+            return "blank-decision"
 
 #-------------------
 # AUX FUNCTIONS
@@ -162,12 +208,12 @@ def createAction(dict):
             u[ac["actionName"]] = createAction(ac)
     return Action(prob, occ, u)
     
-def parseLineCond(stri):
+def JSONise(stri):
     stri = "[{" + stri[1:-1] + "}]"
     stri = stri.replace("(", "").replace(")","")
     # transform into taskName
-    stri = re.sub(r",(T[0-9]+)=\[", r'},{"taskName":"\1","actions":[{', stri)
-    stri = re.sub(r"(T[0-9]+)=\[", r'"taskName":"\1","actions":[{', stri)
+    stri = re.sub(r",(T[0-9]+(\|T[0-9]+)?)=\[", r'},{"taskName":"\1","actions":[{', stri)
+    stri = re.sub(r"(T[0-9]+(\|T[0-9]+)?)=\[", r'"taskName":"\1","actions":[{', stri)
     # transform action and probability
     stri = re.sub(r",([A-Z][0-9]*)=(-?[0-9]+%?)", r'},{"actionName":"\1","probability":"\2"', stri)
     stri = re.sub(r"([A-Z][0-9]*)=(-?[0-9]+%?)", r'"actionName":"\1","probability":"\2"', stri)
@@ -176,8 +222,11 @@ def parseLineCond(stri):
     stri = re.sub(r",(-?[0-9]+)", r',"utility":\1', stri)
     stri = re.sub(r",\[", r',"utility":[{', stri)
     # some weird special case the above misses, ignore please
-    stri = re.sub(r"\]\]", r']}]', stri)
-    parsed = json.loads(stri)
+    stri = re.sub(r"\]\]", r"]}]", stri)
+    return stri
+
+def parseLineCond(stri):
+    parsed = json.loads(JSONise(stri))
     tasks = {}
     for task in parsed:
         hasOcc = False
@@ -190,6 +239,31 @@ def parseLineCond(stri):
         if(hasOcc):
             tasks[task["taskName"]].recalcProb()
     return tasks
+
+def parseMultiAgent(line):
+    mtxsize = int(sqrt(len(line)))
+    tasks = [[None for j in range(mtxsize)]for i in range(mtxsize)]
+    for task in line:
+        i, j = re.findall(r"T([0-9]+)", task["taskName"])
+        i = int(i)
+        j = int(j)
+        taskActions = {}
+        for action in task["actions"]:
+            taskActions[action["actionName"]] = createAction(action)
+            if(taskActions[action["actionName"]].prob == -1):
+                hasOcc = True
+        tasks[i][j] = Task(taskActions)
+        if(hasOcc):
+            tasks[i][j].recalcProb()
+    return tasks
+
+def parseLineMulti(stri):
+    stri = stri.split(",peer=")
+    sm = json.loads(JSONise(stri[0][5:]))
+    sp = json.loads(JSONise(stri[1]))
+    tmine = parseMultiAgent(sm)
+    tpeer = parseMultiAgent(sp)
+    return tmine, tpeer
 
 #-------------------
 # MAIN CODE
@@ -230,13 +304,25 @@ while(not done):
         sys.stdout.write(agent.decide() + "\n")
         sys.stdout.flush()
     elif(line[0] == "decide-conditional"):
-        sys.stdout.write("cond" + "\n")
+        tmine, tpeer = parseLineMulti(line[1])
+        mine = CondAgent(tmine)
+        peer = CondAgent(tpeer)
+        agents = MultiAgent(mine, peer)
+        sys.stdout.write(agents.decide() + "\n")
         sys.stdout.flush()
     elif(line[0] == "decide-nash"):
-        sys.stdout.write("nash" + "\n")
+        tmine, tpeer = parseLineMulti(line[1])
+        mine = NashAgent(tmine)
+        peer = NashAgent(tpeer)
+        agents = MultiAgent(mine, peer)
+        sys.stdout.write(agents.decide() + "\n")
         sys.stdout.flush()
     elif(line[0] == "decide-mixed"):
-        sys.stdout.write("mixed" + "\n")
+        tmine, tpeer = parseLineMulti(line[1])
+        mine = MixedAgent(tmine)
+        peer = MixedAgent(tpeer)
+        agents = MultiAgent(mine, peer)
+        sys.stdout.write(agents.decide() + "\n")
         sys.stdout.flush()
     else:
         done = True
