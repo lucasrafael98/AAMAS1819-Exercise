@@ -175,24 +175,26 @@ class RiskAgent(SingleAgent):
 
 class NashAgent(SingleAgent):
     def decide_row(self):
-        rows = [None]*len(self.tasks)
+        rows = []
         for i in range(len(self.tasks)):
-            jmax, jidx = -1e8,-1
+            jmax = -1e8
             for j in range(len(self.tasks[0])):
                 if(self.tasks[i][j].getExpectedUtility() > jmax):
                     jmax = self.tasks[i][j].getExpectedUtility()
-                    jidx = j
-            rows[i] = (i, jidx)
+            for k in range(len(self.tasks[0])):
+                if(self.tasks[i][k].getExpectedUtility() == jmax):
+                    rows.append((i,k))
         return rows
     def decide_col(self):
-        cols = [None]*len(self.tasks[0])
+        cols = []
         for i in range(len(self.tasks[0])):
-            jmax, jidx = -1e8,-1
+            jmax = -1e8
             for j in range(len(self.tasks)):
                 if(self.tasks[j][i].getExpectedUtility() > jmax):
                     jmax = self.tasks[j][i].getExpectedUtility()
-                    jidx = j
-            cols[i] = (jidx, i)
+            for k in range(len(self.tasks)):
+                if(self.tasks[k][i].getExpectedUtility() == jmax):
+                    cols.append((k,i))
         return cols
 
 class MixedAgent(SingleAgent):
@@ -229,8 +231,8 @@ class MultiAgent:
         self.mine = mine
         self.peer = peer
     def decide_nash(self):
-        cpeer = self.mine.decide_col()
-        rmine = self.peer.decide_col()
+        rmine = self.mine.decide_col()
+        cpeer = self.peer.decide_row()
         #print(rmine, cpeer)
         res = list(set(rmine).intersection(cpeer))
         if(len(res) == 0):
@@ -249,7 +251,7 @@ class MultiAgent:
             return "mine=T" + str(ridx[0]) + ",peer=T" + str(ridx[1])
     def decide_mixed(self):
         rpeer = self.mine.decide_row()
-        cmine = self.peer.decide_row()
+        cmine = self.peer.decide_col()
         if(cmine == "blank-decision" or rpeer == "blank-decision"):
             return "blank-decision"
         return "mine=(" + cmine[0] + "," + cmine[1] + "),peer=("  + rpeer[0] + "," + rpeer[1] + ")"
@@ -321,7 +323,7 @@ def parseLineCond(stri):
             tasks[task["taskName"]].recalcProb()
     return tasks
 
-def parseMultiAgent(line):
+def parseMineAgent(line):
     tasks = [\
                 [None for j in range(int(line[-1]["taskName"][4]) + 1)]\
             for i in range(int(line[-1]["taskName"][1]) + 1)]
@@ -340,12 +342,31 @@ def parseMultiAgent(line):
             tasks[i][j].recalcProb()
     return tasks
 
+def parsePeerAgent(line):
+    tasks = [\
+                [None for j in range(int(line[-1]["taskName"][1]) + 1)]\
+            for i in range(int(line[-1]["taskName"][4]) + 1)]
+    for task in line:
+        j, i = re.findall(r"T([0-9]+)", task["taskName"])
+        i = int(i)
+        j = int(j)
+        taskActions = {}
+        hasOcc = False
+        for action in task["actions"]:
+            taskActions[action["actionName"]] = createAction(action)
+            if(taskActions[action["actionName"]].prob == -1):
+                hasOcc = True
+        tasks[i][j] = Task(taskActions)
+        if(hasOcc):
+            tasks[i][j].recalcProb()
+    return tasks
+
 def parseLineMulti(stri):
     stri = stri.split(",peer=")
     sm = json.loads(JSONise(stri[0][5:]))
     sp = json.loads(JSONise(stri[1]))
-    tmine = parseMultiAgent(sm)
-    tpeer = parseMultiAgent(sp)
+    tmine = parseMineAgent(sm)
+    tpeer = parsePeerAgent(sp)
     return tmine, tpeer
 
 #-------------------
