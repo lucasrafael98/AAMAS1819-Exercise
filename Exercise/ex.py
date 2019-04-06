@@ -28,7 +28,7 @@ class Action:
                     uT += self.actions[key].getExpectedUtility() * self.prob
         return uT
     def getMinUtility(self):
-        if(isinstance(self.actions, int)):
+        if(isinstance(self.actions, int) or isinstance(self.actions, float)):
                 return self.actions
         else:
             umin = 1e32
@@ -125,27 +125,51 @@ class RiskAgent(SingleAgent):
         keys = []
         uexp = []
         umin = [[]]
-        for key in self.tasks:
+        min_counts = 0
+        for key in sorted(self.tasks):
             keys.append(key)
             uexp.append(-self.tasks[key].getExpectedUtility())
             umin[0].append(-self.tasks[key].getMinUtility()) # inverted because of linprog lib
-        perc = [[1 if i==j else 0 for j in range(len(uexp))] for i in range(len(uexp))]
+            if(umin[0][-1] > 0):
+                min_counts += 1
+        eql = [[1 for i in range(len(uexp))]]
+        eqr = [1]
+        if(min_counts == len(umin[0])):
+            ineqr = [min(umin[0]) + 1e-8]
+        else:
+            ineqr = [0]
+        nonneg = list(range(len(uexp)))
         #print("obj", uexp)
-        #print("eql", [[1 for i in range(len(uexp))]])
-        #print("ineql", umin+perc)
-        #print("ineqr", [0]+[1 for i in range(len(uexp))])
-        #print("nonneg", list(range(len(uexp))))
+        #print("eql", eql)
+        #print("eql", eqr)
+        #print("ineql", umin)
+        #print("ineqr", ineqr)
+        #print("nonneg", nonneg)
         sol = linsolve(uexp, 
-                            eq_left=[[1 for i in range(len(uexp))]], eq_right=[1], 
-                            ineq_left=umin+perc, 
-                            ineq_right=[0]+[1 for i in range(len(uexp))],
-                            nonneg_variables=list(range(len(uexp))))
-        #print(reso, sol)
+                            eq_left=eql, eq_right=eqr, 
+                            ineq_left=umin, 
+                            ineq_right=ineqr,
+                            nonneg_variables=nonneg)
+        #print(sol)
         sol = sol[1]
+        if(sol == None):
+            return ""
         res = "("
         for i in range(len(sol)):
-            if(sol[i] >= 0.01):
-                res += ("%0.2f" % sol[i]) + "," + keys[i] + ";" 
+            count = 1
+            lst = [i]
+            for j in range(len(sol)):
+                if(uexp[i] == uexp[j] and \
+                    ((umin[0][i] >= 0 and  umin[0][j] >= 0) or (umin[0][i] <= 0 and  umin[0][j] <= 0))\
+                    and sol[j] == 0):
+                    count += 1
+                    lst.append(j)
+            s = sol[i]
+            for k in lst:
+                sol[k] = s / count
+        for l in range(len(sol)):
+            if(sol[l] >= 0.01):
+                res += ("%0.2f" % sol[l]) + "," + keys[l] + ";" 
         res = res[:-1] + ")"""
         return res
 
@@ -153,7 +177,7 @@ class NashAgent(SingleAgent):
     def decide_row(self):
         rows = [None]*len(self.tasks)
         for i in range(len(self.tasks)):
-            jmax, jidx = -1,-1
+            jmax, jidx = -1e8,-1
             for j in range(len(self.tasks[0])):
                 if(self.tasks[i][j].getExpectedUtility() > jmax):
                     jmax = self.tasks[i][j].getExpectedUtility()
@@ -163,7 +187,7 @@ class NashAgent(SingleAgent):
     def decide_col(self):
         cols = [None]*len(self.tasks[0])
         for i in range(len(self.tasks[0])):
-            jmax, jidx = -1,-1
+            jmax, jidx = -1e8,-1
             for j in range(len(self.tasks)):
                 if(self.tasks[j][i].getExpectedUtility() > jmax):
                     jmax = self.tasks[j][i].getExpectedUtility()
@@ -178,7 +202,12 @@ class MixedAgent(SingleAgent):
         c = self.tasks[-1][0].getExpectedUtility()
         d = self.tasks[-1][-1].getExpectedUtility()
         #print(a,b,c,d)
+        if(a-b-c+d == 0):
+            return "blank-decision"
         p = (d-b)/(a-b-c+d)
+        #print("%0.2f"%p, "%0.2f"%(1-p))
+        if(p < 0 or p > 1):
+            return "blank-decision"
         return ("%0.2f"%p, "%0.2f"%(1-p))
     def decide_col(self):
         a = self.tasks[0][0].getExpectedUtility()
@@ -186,7 +215,12 @@ class MixedAgent(SingleAgent):
         c = self.tasks[0][-1].getExpectedUtility()
         d = self.tasks[-1][-1].getExpectedUtility()
         #print(a,b,c,d)
+        if(a-b-c+d == 0):
+            return "blank-decision"
         p = (d-b)/(a-b-c+d)
+        #print("%0.2f"%p, "%0.2f"%(1-p))
+        if(p < 0 or p > 1):
+            return "blank-decision"
         return ("%0.2f"%p, "%0.2f"%(1-p))
 
 # Describes a multi-agent system.
@@ -195,22 +229,29 @@ class MultiAgent:
         self.mine = mine
         self.peer = peer
     def decide_nash(self):
-        rmine = self.mine.decide_row()
-        cpeer = self.peer.decide_col()
-        if(rmine[0] == cpeer[0] and rmine[1] == cpeer[1]):
-            if(rmine[0] >= rmine[1]):
-                return "mine=T" + str(rmine[0][0]) + ",peer=T" + str(rmine[0][1])
-            else:
-                return "mine=T" + str(rmine[1][0]) + ",peer=T" + str(rmine[1][1])
-        elif(rmine[0] == cpeer[0]):
-            return "mine=T" + str(rmine[0][0]) + ",peer=T" + str(rmine[0][1])
-        elif(rmine[1] == cpeer[1]):
-            return "mine=T" + str(rmine[1][0]) + ",peer=T" + str(rmine[1][1])
-        else:
+        cpeer = self.mine.decide_col()
+        rmine = self.peer.decide_col()
+        #print(rmine, cpeer)
+        res = list(set(rmine).intersection(cpeer))
+        if(len(res) == 0):
             return "blank-decision"
+        if(len(res) == 1):
+            return "mine=T" + str(res[0][0]) + ",peer=T" + str(res[0][1])
+        else:
+            rmax, ridx = -1e8, -1
+            for r in res:
+                #print(r[0], r[1], self.mine.tasks[r[0]][r[1]].getExpectedUtility() + self.peer.tasks[r[0]][r[1]].getExpectedUtility())
+                if(self.mine.tasks[r[0]][r[1]].getExpectedUtility() +\
+                    self.peer.tasks[r[0]][r[1]].getExpectedUtility() > rmax):
+                    rmax = self.mine.tasks[r[0]][r[1]].getExpectedUtility() +\
+                        self.peer.tasks[r[0]][r[1]].getExpectedUtility()
+                    ridx = r
+            return "mine=T" + str(ridx[0]) + ",peer=T" + str(ridx[1])
     def decide_mixed(self):
-        cmine = self.mine.decide_col()
-        rpeer = self.peer.decide_row()
+        rpeer = self.mine.decide_row()
+        cmine = self.peer.decide_row()
+        if(cmine == "blank-decision" or rpeer == "blank-decision"):
+            return "blank-decision"
         return "mine=(" + cmine[0] + "," + cmine[1] + "),peer=("  + rpeer[0] + "," + rpeer[1] + ")"
     def decide_cond(self):
         nash = self.decide_nash()
@@ -323,9 +364,6 @@ if(line[0] == "decide-rational"):
     elif(len(line) == 3):
         agent = RationalAgent(parseLineCond(line[1]))
         interaccs = line[2]
-    else:
-        done = True
-        print("Invalid Input.")
     print(agent.decide())
     update_done = False
     for i in range(1,int(interaccs)):
