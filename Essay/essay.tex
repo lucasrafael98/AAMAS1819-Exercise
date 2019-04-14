@@ -1,16 +1,67 @@
-\documentclass{article}
-\usepackage[utf8]{inputenc}
-\usepackage[margin=3cm]{geometry}
-\usepackage{indentfirst}
+\documentclass{aamas2017}
 
-\setlength{\parindent}{0.75cm} %heh, 0.75
-
-\title{\textbf{AAMAS - Essay}}
-\author{\Large{João Rafael, 83482}}
-\date{April 5, 2019}
+\pdfpagewidth=8.5truein
+\pdfpageheight=11truein
 
 \begin{document}
-    \maketitle
 
-    \section{Introduction}
+\title{AAMAS 2019 Essay}
+
+\author{
+    \alignauthor
+    João Rafael\\83482
+}
+
+\maketitle
+\section{Deception Mechanisms}
+    \subsection{Hidden Utilities}
+        \par
+        Agents can use hidden utilities to deceive other agents into thinking its utility for a certain task is different than the real utility.
+        \par
+        For example, in the game encounter's case, while we're finding the Nash equilibrium, there's a choice between two cells in the utility matrix. By hiding the action on one of those cells, one of the agents can force the Nash equilibrium to settle on a cell which gives more utility to itself rather than the other agent.
+
+    \subsection{Hidden Actions}
+        \par
+        The biggest benefit of hiding actions is that an agent that hides its actions might be able to get another agent to perform the action it's hiding, and maybe increase its utility. By hiding an action, other agents realize they need to do it themselves, and therefore the agent manages to do something that gives more utility.
+        \par
+        For a game encounter example, if when settling between several Nash equilibria the result will be the action that benefits one of the agents less, if he chooses to hide it, the result is the equilibrium settling on a more advantageous action for itself.
+
+    \subsection{Phantom and Decoy Actions}
+        \par 
+        The agent can use phantom actions to pretend it has something else it needs to do. By pretending to have been assigned a task, the agent can then do the action of its own choice (namely, the one with the most utility), instead of an action he would have been forced to perform had he not used the phantom action. The response to phantom action use is to make sure tasks are verifiable by all agents participating in a negotiation.
+        \par 
+        Agents can also produce artificial tasks when they're being verified. Such decoy actions are essentially impossible to detect, making deception much harder to combat in such occasions.
+        \par
+        In the game encounter's case, one of the agents can produce a phantom or decoy action that matches one of the other agent's actions in a Nash equilibrium, and make it so the other agent has to settle the equilibrium on a lower utility cell than its own maximum.
+
+\section{Uses of Deception}
+    \subsection{Using deception to maximize reward}
+        \par
+        An agent can maximize its reward by using deception. More specifically, if an agent uses hidden actions or utilities, when deciding with other agents what action each will perform, the agent's lottery would be altered by these deception mechanisms, making it so that the agents' mutual decision is that the deceiving agent gets a highly rewarding action.
+        \par
+        A lot of negotiations are based on mechanisms where each agent gets benefits without negatively impacting the others (for example, Pareto optimality). However, when an agent uses deception mechanics, it can alter such mechanisms in its benefit, by making it so that not maximising its own reward will lead to too much of a negative impact to consider ending the negotiation without maximising the agent's reward.
+
+    \subsection{Using deception in a cooperative setting}
+        \par
+        Agent cooperation doesn't necessarily mean that an agent can't be deceitful. A cooperative setting is going to imply that agents have the same general goal, of course, but that doesn't mean that a "selfish" agent might try to accomplish his own goals throughout an encounter.
+        \par
+        If a certain setting is cooperative, yet the agents don't necessarily have the same goal, both agents may choose to work together in order to decrease their lower overall cost. In this case, an agent may use deception as a way to  further their objectives and reach their own goal with the least cost to itself as possible.
+        \par
+        When negotiating on each action, the deceitful agent can try to being the world's state closer to his goal state. The agents might try to reach a Nash equilibrium or Pareto optimality, there's often a variety of results for each of these. The agent can then use deception to settle the negotiation on an equilibriium/optimality that brings it to its goal faster, rather than one that would be more balanced (in the sense that it would equally fulfill each agent's goal). This does result in a cooperative negotiation; it benefits both agents, but it does so more towards one of them.
+
+    \subsection{Deception's impact in Pareto optimality and Nash equilibrium}
+        \par
+        Deception is capable of altering Pareto optimality and Nash equilibrium immensely. Since Pareto optimality is reached when no agent can get a better reward without decreasing another's reward, any kind of deception is likely to lead to an incorrect Pareto optimality, and end up being mostly a benefit to deceiving agents.
+        \par
+        For example, an agent may be deceiving the others and hiding an action that keeps Pareto optimality on a set of actions that greatly benefits most of the other agents, but not the deceitful one. This might result in this group of agents having to reach Pareto optimality on a point that wouldn't be optimal otherwise, this point being one that mostly benefits the deceitful agent.
+        \par
+        In a similar way, deception is very much capable of altering Nash equilibria. If an agent can hide utilities or actions, and create phantom/decoy actions, then it can change its action matrix in a way that is going to completely change the possible Nash equilibria between it and the other agent. 
+        \par
+        For example, the decide-nash function implemented in the exercise checks the tasks with the highest utility in each row/column. By changing the highest utility in a row (by hiding an action or producing a phantom action with a high utility), that row's result is obviously going to be quite different, and end up changing the matrix cells one agent has in common with its peers, therefore easily changing the Nash equilibrium.
+
+\bibliographystyle{abbrv}
+\bibliography{biblio.bib}
+\cite{woolridge:mas}
+\cite{zlotkin:iidman}
+
 \end{document}
